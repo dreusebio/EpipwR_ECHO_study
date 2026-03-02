@@ -95,6 +95,113 @@ Finally, users can also summarize the output with error bar plots with `EpipwR_p
 
 Please note that `EpipwR_plot` can only run with the data frame output of `get_power_cont` or `get_power_cc` - it will not work with data in any other format.
 
+```{r Setup}
+library(EpipwR)
+
+#sample size proposed by Rebecca
+n <- 1000
+
+# Your WGBS testing universes(after filtering)
+Total_CpG     <- 2e7   # 20,000,000 CpGs tested after filtering
+Total_regions <- 5e5   # 500,000 regions tested after filtering
+
+# Placenta reference distribution from EpipwR(This is placenta using distribution of 
+#EPIC array data)
+Tissue   <- "Placenta"
+emp_data <- NULL
+
+# Sensitivity analysis: plausible number of truly-associated features
+dm_values <- c(1000, 10000, 50000)
+
+# Effect-size grids to evaluate
+rho_grid   <- c(0.05, 0.07, 0.10, 0.15)      # correlations for continuous exposure
+delta_grid <- c(0.01, 0.02, 0.03, 0.05)      # methylation differences for top25% vs rest
+```
+So for this power calculation, I will work with the assumption that we are going to be 
+interested in both individual CpGs as well as differentially methylated regions (DMRs). 
+We usually prefer the DMRs. I will do for continuous and binary exposure models.
+
+```{r CpG-level exposure}
+out_cont_CpG <- lapply(dm_values, function(d) {
+  get_power_cont(
+    dm        = d,
+    Total     = Total_CpG,
+    n         = n,
+    fdr_fwer  = 0.05,
+    rho_mu    = rho_grid,
+    rho_sd    = 0,
+    Tissue    = Tissue,
+    emp_data  = emp_data,
+    use_fdr   = TRUE,
+    test      = "pearson"
+  )
+})
+
+names(out_cont_CpG) <- paste0("dm_", dm_values)
+out_cont_CpG
+```
+
+```{r CpG level binary}
+out_q4_CpG <- lapply(dm_values, function(d) {
+  get_power_cc(
+    dm        = d,
+    Total     = Total_CpG,
+    n         = n,
+    fdr_fwer  = 0.05,
+    delta_mu  = delta_grid,
+    delta_sd  = 0,
+    n1_prop   = 0.25,
+    Tissue    = Tissue,
+    emp_data  = emp_data,
+    use_fdr   = TRUE,
+    test      = "pooled"
+  )
+})
+
+names(out_q4_CpG) <- paste0("dm_", dm_values)
+out_q4_CpG
+```
+
+```{r region leve continous}
+out_cont_regions <- lapply(dm_values, function(d) {
+  get_power_cont(
+    dm        = d,
+    Total     = Total_regions,
+    n         = n,
+    fdr_fwer  = 0.05,
+    rho_mu    = rho_grid,
+    rho_sd    = 0,
+    Tissue    = Tissue,
+    emp_data  = emp_data,
+    use_fdr   = TRUE,
+    test      = "pearson"
+  )
+})
+
+names(out_cont_regions) <- paste0("dm_", dm_values)
+out_cont_regions
+```
+
+```{region level binary}
+out_cont_regions <- lapply(dm_values, function(d) {
+  get_power_cont(
+    dm        = d,
+    Total     = Total_regions,
+    n         = n,
+    fdr_fwer  = 0.05,
+    rho_mu    = rho_grid,
+    rho_sd    = 0,
+    Tissue    = Tissue,
+    emp_data  = emp_data,
+    use_fdr   = TRUE,
+    test      = "pearson"
+  )
+})
+
+names(out_cont_regions) <- paste0("dm_", dm_values)
+out_cont_regions
+```
+
 ```{r}
 # Load sessioninfo package
 library(sessioninfo)
