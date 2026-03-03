@@ -1,0 +1,341 @@
+---
+title: "EWAS Power Calculations (Placenta WGBS)"
+author: "George Kuodza"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Overview
+
+Power calculations were conducted using the **EpipwR** package under the following assumptions:
+
+- Sample size: **n = 900, 1000, 1100, 1200**
+- Tissue: **Placenta**
+- dm (true non-null CpGs/regions): **500 and 1000**
+- Error control: **FDR = 0.05**
+- CpG universe: **20M and 15M**
+- Region universe: **500K and 100K**
+- Continuous exposure: **correlation-based effect sizes (Pearson’s coefficient) evaluated over a grid of rho_mu values**
+- Binary exposure: **25/75 split and 50/50 split**
+- Target power: **80%**
+
+---
+```{r setup, message=FALSE, warning=FALSE}
+library(EpipwR)
+library(dplyr)
+library(purrr)
+library(readr)
+library(tibble)
+library(kableExtra)
+
+# Inputs
+n <- c(900, 1000, 1100, 1200)
+Tissue <- "Placenta"
+emp_data <- NULL
+
+dm_values <- c(500, 1000)
+
+Totals <- list(
+  CpG_20M     = 2e7,
+  CpG_15M     = 1.5e7,
+  Region_500K = 5e5,
+  Region_100K = 1e5,
+  Region_20K  = 2e4
+)
+
+rho_grid   <- c(0.05, 0.07, 0.10, 0.15, 0.18, 0.20)
+delta_grid <- c(0.01, 0.02, 0.03, 0.05)
+
+use_fdr <- TRUE
+fdr_fwer <- 0.05
+
+n1_props <- c(`25_75` = 0.25, `50_50` = 0.50)
+
+target_power <- 0.80
+
+out_dir <- "EpipwR_power_rerun_outputs"
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+target_power <- 0.80
+```
+
+```{r helper}
+extract_mdes <- function(df, effect_col, power_col = "avg_power", target_power = 0.80) {
+
+  if (!effect_col %in% names(df)) stop("Missing effect column: ", effect_col)
+  if (!power_col %in% names(df)) stop("Missing power column: ", power_col)
+
+  df_sorted <- df %>% arrange(.data[[effect_col]])
+
+  hit <- df_sorted %>%
+    filter(.data[[power_col]] >= target_power) %>%
+    slice(1)
+
+  if (nrow(hit) == 0) {
+    max_row <- df_sorted %>% slice(n())
+    tibble(
+      target_power = target_power,
+      mdes_effect = NA_real_,
+      achieved_power_at_mdes = NA_real_,
+      max_tested_effect = max_row[[effect_col]],
+      achieved_power_at_max = max_row[[power_col]]
+    )
+  } else {
+    tibble(
+      target_power = target_power,
+      mdes_effect = hit[[effect_col]][1],
+      achieved_power_at_mdes = hit[[power_col]][1],
+      max_tested_effect = max(df_sorted[[effect_col]]),
+      achieved_power_at_max = df_sorted %>% slice(n()) %>% pull(.data[[power_col]])
+    )
+  }
+}
+```
+
+```{r run_power, message=TRUE}
+# --------------------------
+# 1) Region continuous (rho)
+# --------------------------
+out_cont_Region <- map_dfr(dm_values, function(dm) {
+  map_dfr(c("Region_500K", "Region_100K", "Region_20K"), function(total_name) {
+    Total <- Totals[[total_name]]
+
+    get_power_cont(
+      dm = dm, Total = Total, n = n,
+      fdr_fwer = fdr_fwer,
+      rho_mu = rho_grid, rho_sd = 0,
+      Tissue = Tissue, emp_data = emp_data,
+      use_fdr = use_fdr, test = "pearson"
+    ) %>%
+      mutate(
+        Level = "Region",
+        Model = "Continuous (rho; Pearson correlation)",
+        Total_name = total_name,
+        Total_tests = Total,
+        dm = dm
+      )
+  })
+})
+
+mdes_cont_Region <- out_cont_Region %>%
+  group_by(sample_size, dm, Total_name, Total_tests, Level, Model) %>%
+  group_modify(~ extract_mdes(.x, effect_col = "rho_mu", target_power = target_power)) %>%
+  ungroup()
+
+# --------------------------
+# 2) Region binary (delta)
+# --------------------------
+
+out_bin_Region <- map_dfr(dm_values, function(dm) {
+  map_dfr(c("Region_500K", "Region_100K", "Region_20K"), function(total_name) {
+    Total <- Totals[[total_name]]
+
+    map_dfr(names(n1_props), function(split_name) {
+      n1_prop <- n1_props[[split_name]]
+
+      get_power_cc(
+        dm = dm, Total = Total, n = n,
+        fdr_fwer = fdr_fwer,
+        delta_mu = delta_grid, delta_sd = 0,
+        n1_prop = n1_prop,
+        Tissue = Tissue, emp_data = emp_data,
+        use_fdr = use_fdr, test = "pooled"
+      ) %>%
+        mutate(
+          Level = "Region",
+          Model = paste0("Binary (delta; ", split_name, ")"),
+          Total_name = total_name,
+          Total_tests = Total,
+          dm = dm,
+          n1_prop = n1_prop
+        )
+    })
+  })
+})
+
+mdes_bin_Region <- out_bin_Region %>%
+  group_by(sample_size, dm, Total_name, Total_tests, Level, Model, n1_prop) %>%
+  group_modify(~ extract_mdes(.x, effect_col = "delta_mu", target_power = target_power)) %>%
+  ungroup()
+
+# --------------------------
+# 3) CpG continuous (rho)
+# --------------------------
+out_cont_CpG <- map_dfr(dm_values, function(dm) {
+  map_dfr(c("CpG_20M", "CpG_15M"), function(total_name) {
+    Total <- Totals[[total_name]]
+
+    get_power_cont(
+      dm = dm, Total = Total, n = n,
+      fdr_fwer = fdr_fwer,
+      rho_mu = rho_grid, rho_sd = 0,
+      Tissue = Tissue, emp_data = emp_data,
+      use_fdr = use_fdr, test = "pearson"
+    ) %>%
+      mutate(
+        Level = "CpG",
+        Model = "Continuous (rho; Pearson correlation)",
+        Total_name = total_name,
+        Total_tests = Total,
+        dm = dm
+      )
+  })
+})
+
+mdes_cont_CpG <- out_cont_CpG %>%
+  group_by(sample_size, dm, Total_name, Total_tests, Level, Model) %>%
+  group_modify(~ extract_mdes(.x, effect_col = "rho_mu", target_power = target_power)) %>%
+  ungroup()
+
+# --------------------------
+# 4) CpG binary (delta)
+# --------------------------
+out_bin_CpG <- map_dfr(dm_values, function(dm) {
+  map_dfr(c("CpG_20M", "CpG_15M"), function(total_name) {
+    Total <- Totals[[total_name]]
+
+    map_dfr(names(n1_props), function(split_name) {
+      n1_prop <- n1_props[[split_name]]
+
+      get_power_cc(
+        dm = dm, Total = Total, n = n,
+        fdr_fwer = fdr_fwer,
+        delta_mu = delta_grid, delta_sd = 0,
+        n1_prop = n1_prop,
+        Tissue = Tissue, emp_data = emp_data,
+        use_fdr = use_fdr, test = "pooled"
+      ) %>%
+        mutate(
+          Level = "CpG",
+          Model = paste0("Binary (delta; ", split_name, ")"),
+          Total_name = total_name,
+          Total_tests = Total,
+          dm = dm,
+          n1_prop = n1_prop
+        )
+    })
+  })
+})
+
+mdes_bin_CpG <- out_bin_CpG %>%
+  group_by(sample_size, dm, Total_name, Total_tests, Level, Model, n1_prop) %>%
+  group_modify(~ extract_mdes(.x, effect_col = "delta_mu", target_power = target_power)) %>%
+  ungroup()
+
+full_results <- bind_rows(out_cont_CpG, out_bin_CpG, out_cont_Region, out_bin_Region)
+
+mdes_results <- bind_rows(mdes_cont_CpG, mdes_bin_CpG, mdes_cont_Region, mdes_bin_Region) %>%
+  arrange(Level, Total_tests, Model, sample_size, dm)
+
+# Print MDES summary in the knitted doc
+mdes_results
+```
+
+---
+
+```{r show_mdes_kable, results='asis'}
+knitr::kable(
+  mdes_results,
+  caption = "Minimum Detectable Effect Size (MDES) summary (target power = 0.80)"
+)
+```
+
+```{r export, message=FALSE}
+# Export full tables
+write_csv(out_cont_CpG,    file.path(out_dir, "EpipwR_full_CpG_cont.csv"))
+write_csv(out_bin_CpG,     file.path(out_dir, "EpipwR_full_CpG_binary.csv"))
+write_csv(out_cont_Region, file.path(out_dir, "EpipwR_full_Region_cont.csv"))
+write_csv(out_bin_Region,  file.path(out_dir, "EpipwR_full_Region_binary.csv"))
+
+# Export combined tables
+write_csv(full_results, file.path(out_dir, "EpipwR_full_results_ALL.csv"))
+write_csv(mdes_results, file.path(out_dir, "EpipwR_MDES_summary_ALL.csv"))
+```
+
+```{r plot}
+plot_dir <- file.path(out_dir, "plots")
+if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
+
+for (tot in unique(out_cont_CpG$Total_name)) {
+  for (dm in unique(out_cont_CpG$dm)) {
+
+    df <- out_cont_CpG %>% filter(Total_name == tot, dm == dm)
+
+    p <- EpipwR_plot(df)
+    
+    print(p)
+
+    ggplot2::ggsave(
+      filename = file.path(plot_dir, paste0("CpG_continuous_", tot, "_dm", dm, ".pdf")),
+      plot = p,
+      width = 8, height = 6, units = "in"
+    )
+  }
+}
+
+for (tot in unique(out_cont_Region$Total_name)) {
+  for (dm in unique(out_cont_Region$dm)) {
+
+    df <- out_cont_Region %>% filter(Total_name == tot, dm == dm)
+
+    p <- EpipwR_plot(df)
+    
+    print(p)
+
+    ggplot2::ggsave(
+      filename = file.path(plot_dir, paste0("Region_continuous_", tot, "_dm", dm, ".pdf")),
+      plot = p,
+      width = 8, height = 6, units = "in"
+    )
+  }
+}
+
+for (tot in unique(out_bin_CpG$Total_name)) {
+  for (dm in unique(out_bin_CpG$dm)) {
+    for (model in unique(out_bin_CpG$Model)) {
+
+      df <- out_bin_CpG %>% filter(Total_name == tot, dm == dm, Model == model)
+
+      p <- EpipwR_plot(df)
+      
+      print(p)
+
+      safe_model <- gsub("[^A-Za-z0-9_]+", "_", model)
+
+      ggplot2::ggsave(
+        filename = file.path(plot_dir, paste0("CpG_binary_", tot, "_dm", dm, "_", safe_model, ".pdf")),
+        plot = p,
+        width = 8, height = 6, units = "in"
+      )
+    }
+  }
+}
+
+
+for (tot in unique(out_bin_Region$Total_name)) {
+  for (dm in unique(out_bin_Region$dm)) {
+    for (model in unique(out_bin_Region$Model)) {
+
+      df <- out_bin_Region %>% filter(Total_name == tot, dm == dm, Model == model)
+
+      p <- EpipwR_plot(df)
+      
+      print(p)
+
+      safe_model <- gsub("[^A-Za-z0-9_]+", "_", model)
+
+      ggplot2::ggsave(
+        filename = file.path(plot_dir, paste0("Region_binary_", tot, "_dm", dm, "_", safe_model, ".pdf")),
+        plot = p,
+        width = 8, height = 6, units = "in"
+      )
+    }
+  }
+}
+
+```
