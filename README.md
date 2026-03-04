@@ -23,7 +23,7 @@ install_github("jbarth216/EpipwR", build_vignettes=TRUE)
 # Usage
 
 A detailed EpipwR workflow can be found in the EpipwR vignette: 
-This has the Rmd of from the creator and my versions which are project specific.
+This has the Rmd from the creator and my versions, which are project-specific.
 
 ```         
 browseVignettes("EpipwR")
