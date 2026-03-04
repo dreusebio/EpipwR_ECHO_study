@@ -1,22 +1,64 @@
 ---
 title: "EWAS Power Calculations (Placenta WGBS)"
 author: "George Kuodza"
-date: "`r Sys.Date()`"
+date: "`r format(Sys.time(), '%Y-%m-%d at %H:%M')`"
 output:
-  pdf_document:
-    toc: true
-  html_document:
-    toc: true
-    number_sections: true
+  pdf_document: default
+  html_document: default
 ---
 
-# Overview
+
+### Introduction
+
+EpipwR is a quasi-simulation based approach to power analysis for epigenome-wide association studies (EWAS) with a continuous or binary outcome variable. It is fast, efficient and allows the exact level of precision to be set by the user. EpipwR is the first open source tool able to calculate power for EWAS with a continuous outcome. For binary outcomes, it re-implements the pwrEWAS methodology (Graw et al., 2019 - currently available on GitHub) with a few changes and significantly improves the computation time.  EpipwR is simple in that it has three main functions: `get_power_cont()` and `get_power_cc` calculate power for various settings with continuous and binary outcomes (respectively) and `EpipwR_plot()` plots the output. The following vignette describes in detail the EpipwR workflow for an analysis of a continuous outcome.
+
+### Methodology (Continuous Outcome)
+
+Suppose an upcoming EWAS plans to analyze the methylation levels at $K$ CpG sites and some continuous outcome $Y$. Of the $K$ CpG sites, it is assumed that only a subest of these ($K_m$ ) have non-zero correlation to $Y$. The goal of EpipwR is to determine the level of power achieved by this study at a given sample size $n$, where power is defined as the proportion of the $K_m$ CpG sites are found to have a statistically significant association with $Y$.
+
+To begin, EpipwR generates data for the $K_m$ CpG methylation levels and for $Y$. Users specify $\mu_\rho$ and $\sigma_\rho$, the average and standard deviation of the correlation between each of the $K_m$ methylation levels and $Y$. If users prefer that all $K_m$ methylation levels have equal correlation with $Y$, then $\sigma_\rho$ can be set to 0. Like many power analysis tools, EpipwR assumes no correlation across CpG sites (i.e., they are conditionally independent given $Y$). Users also select which empirical EWAS data to use to generate initial methylation levels. Full details of the data generation process can be found in the corresponding EpipwR article (Barth and Reynolds, 2024).
+
+Once a dataset has been generated, p-values are calculated by performing the specified hypothesis test (Pearson, Spearman or Kendall correlation) for each $K_m$ site. Please note that in absence of any "vertical" correlation or additional covariates, performing a standard analysis in limma is equivalent to using the Pearson correlation test. Users can specify either a false discovery rate or family-wise type I error rate correction for determining statistical significance. If the false discovery rate is selected, p-values for the remaining null tests are generated via a $Uniform(0,1)$ distribution.
+
+Since the process described above is based heavily on random sampling, it must be repeated on several data sets to produce a reliable power estimate. Whereas traditional tools require the user to specify the number of repetitions, EpipwR sets 20 to the minimum number of data sets, allows users to set a maximum number of data sets and a level of precision in the form of a 95% confidence interval margin of error. Anytime after the first 20 datasets, EpipwR terminates once one of these two conditions are met. The default margin of error is 3% (it is recommended that this be between 1 and 5%). For example, if the target margin of error is 3% and the maximum number of data sets is 1000, then the algorithm stops when $N=1000$ or once the following conditions are met:
+
+$$1.96\cdot\frac{s_{(N)}}{\sqrt{N}}<.03,\qquad N\ge20
+$$
+
+where $s_{(N)}$ is the standard deviation of average power over $N$ data sets.
+
+### Function Inputs
+
+The below table describes the details of the `get_power_cont` inputs.
+
+|                      |                                                                                                                                       |
+|-----------------|-------------------------------------------------------|
+| **Parameter**        | **Description**                                                                                                                       |
+| `dm`                 | The total number of non-null tests (i.e., the number of CpG sites with methylation having a non-zero correlation with the phenotype). |
+| `Total`              | The total number of tests (i.e., total number of CpG sites in the study).                                                             |
+| `n`                  | The sample size of the study - accepts a vector of values.                                                                            |
+| `fdr_fwer`           | Either the false discovery rate (FDR) or the family-wise type I error rate (FWER), depending on `use_fdr.`                            |
+| `rho_mu`             | The average correlation of the non-null tests - accepts a vector of values.                                                           |
+| `rho_sd=0`           | The standard deviation of the correlation for non-null tests.                                                                         |
+| `Tissue="Saliva"`    | Tissue corresponding to empirical EWAS data (see `?get_power_cont` for valid options).                                                |
+| `Nmax=1000`          | The maximum number of data sets that EpipwR will use to determine power. Cannot be less than 20.                                      |
+| `MOE=.03`            | The target margin of error of a 95% confidence interval for average power.                                                            |
+| `test="Pearson"`     | Type of correlation/test utilized. Acceptable inputs are `"Pearson"`, `"Kendall"` and `"Spearman"` .                                  |
+| `use_fdr=T`          | Indicates that the false discovery rate should be used as the correction. Otherwise, uses FWER.                                       |
+| `Suppress_Updates=F` | If `T` , removes intermediate status updates.                                                                                         |
+
+### Methodology (Binary outcome)
+For the case-control setting, EpipwR re-implements the pwrEWAS methodology (Graw et al., 2019) with a few key changes to improve speed and interpretation, namely (1) keeping the precision equal between groups rather than variance, (2) requiring users to specify mean and variance for an effect size distribution (rather than a target maximal difference) and (3) generating p-values directly for null tests. Like in `get_power_cont`, `get_power_cc` calculates the optimal amount of data sets needed to determine power at a user-specified level of precision.  
+
+### EpipwR Workflow specifically for the ECHO project
+
+#ECHO Power Calculation
 
 Power calculations were conducted using the **EpipwR** package under the following assumptions:
 
-- Sample size: **n = 900, 1000, 1100, 1200**
+- Sample size: **n = 900, 1000, 1100**
 - Tissue: **Placenta**
-- dm (true non-null CpGs/regions): **500 and 1000**
+- dm (true non-null CpGs/regions): **1000**
 - Error control: **FDR = 0.05**
 - CpG universe: **20M and 15M**
 - Region universe: **500K and 100K**
@@ -32,23 +74,24 @@ library(purrr)
 library(readr)
 library(tibble)
 library(kableExtra)
-
+# #some of these package necessary for Rendering
+# tinytex::reinstall_tinytex(repository = "illinois")
+# tinytex::tlmgr_install("multirow")
 # Inputs
-n <- c(900, 1000, 1100, 1200)
+n <- c(900, 1000, 1100)
 Tissue <- "Placenta"
 emp_data <- NULL
 
-dm_values <- c(500, 1000)
+dm_values <- c(1000)
 
 Totals <- list(
   CpG_20M     = 2e7,
   CpG_15M     = 1.5e7,
   Region_500K = 5e5,
-  Region_100K = 1e5,
-  Region_20K  = 2e4
+  Region_100K = 1e5
 )
 
-rho_grid   <- c(0.05, 0.07, 0.10, 0.15, 0.18, 0.20)
+rho_grid   <- c(0.05, 0.10, 0.15, 0.18, 0.20)
 delta_grid <- c(0.01, 0.02, 0.03, 0.05)
 
 use_fdr <- TRUE
@@ -97,12 +140,12 @@ extract_mdes <- function(df, effect_col, power_col = "avg_power", target_power =
 }
 ```
 
-```{r run_power, message=TRUE}
+```{r run_power, message=FALSE}
 # --------------------------
 # 1) Region continuous (rho)
 # --------------------------
 out_cont_Region <- map_dfr(dm_values, function(dm) {
-  map_dfr(c("Region_500K", "Region_100K", "Region_20K"), function(total_name) {
+  map_dfr(c("Region_500K", "Region_100K"), function(total_name) {
     Total <- Totals[[total_name]]
 
     get_power_cont(
@@ -121,6 +164,7 @@ out_cont_Region <- map_dfr(dm_values, function(dm) {
       )
   })
 })
+head(out_cont_Region)
 
 mdes_cont_Region <- out_cont_Region %>%
   group_by(sample_size, dm, Total_name, Total_tests, Level, Model) %>%
@@ -132,7 +176,7 @@ mdes_cont_Region <- out_cont_Region %>%
 # --------------------------
 
 out_bin_Region <- map_dfr(dm_values, function(dm) {
-  map_dfr(c("Region_500K", "Region_100K", "Region_20K"), function(total_name) {
+  map_dfr(c("Region_500K", "Region_100K"), function(total_name) {
     Total <- Totals[[total_name]]
 
     map_dfr(names(n1_props), function(split_name) {
@@ -157,6 +201,8 @@ out_bin_Region <- map_dfr(dm_values, function(dm) {
     })
   })
 })
+
+head(out_bin_Region)
 
 mdes_bin_Region <- out_bin_Region %>%
   group_by(sample_size, dm, Total_name, Total_tests, Level, Model, n1_prop) %>%
@@ -186,6 +232,7 @@ out_cont_CpG <- map_dfr(dm_values, function(dm) {
       )
   })
 })
+head(out_cont_CpG)
 
 mdes_cont_CpG <- out_cont_CpG %>%
   group_by(sample_size, dm, Total_name, Total_tests, Level, Model) %>%
@@ -222,27 +269,42 @@ out_bin_CpG <- map_dfr(dm_values, function(dm) {
   })
 })
 
+head(out_bin_CpG)
+
 mdes_bin_CpG <- out_bin_CpG %>%
   group_by(sample_size, dm, Total_name, Total_tests, Level, Model, n1_prop) %>%
   group_modify(~ extract_mdes(.x, effect_col = "delta_mu", target_power = target_power)) %>%
   ungroup()
+
 
 full_results <- bind_rows(out_cont_CpG, out_bin_CpG, out_cont_Region, out_bin_Region)
 
 mdes_results <- bind_rows(mdes_cont_CpG, mdes_bin_CpG, mdes_cont_Region, mdes_bin_Region) %>%
   arrange(Level, Total_tests, Model, sample_size, dm)
 
-# Print MDES summary in the knitted doc
-mdes_results
+# # Print MDES summary in the knitted doc
+# mdes_results
 ```
+
 
 ---
 
 ```{r show_mdes_kable, results='asis'}
+
+mdes_clean <- mdes_results %>%
+  select(Level, Total_name, sample_size, dm, Model,
+         mdes_effect, achieved_power_at_mdes)
+
 knitr::kable(
-  mdes_results,
-  caption = "Minimum Detectable Effect Size (MDES) summary (target power = 0.80)"
-)
+  mdes_clean,
+  caption = "Minimum Detectable Effect Size (MDES) summary (target power = 0.80)",
+  booktabs = TRUE,
+  longtable = TRUE
+) |>
+  kableExtra::kable_styling(
+    latex_options = "repeat_header",
+    font_size = 7
+  )
 ```
 
 ```{r export, message=FALSE}
@@ -257,74 +319,79 @@ write_csv(full_results, file.path(out_dir, "EpipwR_full_results_ALL.csv"))
 write_csv(mdes_results, file.path(out_dir, "EpipwR_MDES_summary_ALL.csv"))
 ```
 
-```{r plot}
+```{r plots, fig.width=8, fig.height=8, dpi=300}
+# --- Setup plot directory ---
 plot_dir <- file.path(out_dir, "plots")
 if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
 
-for (tot in unique(out_cont_CpG$Total_name)) {
-  for (dm in unique(out_cont_CpG$dm)) {
+# Helper: make a clean, non-clipping title + apply safe theme
+make_power_plot <- function(df, title1, subtitle_line, wrap_width = 70,
+                            base_text_size = 11) {
 
-    df <- out_cont_CpG %>% filter(Total_name == tot, dm == dm)
+  subtitle_wrapped <- paste(strwrap(subtitle_line, width = wrap_width), collapse = "\n")
 
-    p <- EpipwR_plot(df)
-    
-    print(p)
+  EpipwR::EpipwR_plot(df) +
+    ggplot2::labs(title = paste(title1, subtitle_wrapped, sep = "\n")) +
+    ggplot2::theme(
+      # OVERRIDE EpipwR's theme(text=size=18)
+      text = ggplot2::element_text(size = base_text_size),
 
-    ggplot2::ggsave(
-      filename = file.path(plot_dir, paste0("CpG_continuous_", tot, "_dm", dm, ".pdf")),
-      plot = p,
-      width = 8, height = 6, units = "in"
+      # Title styling (keep yours, but slightly smaller)
+      plot.title  = ggplot2::element_text(size = base_text_size + 1,
+                                          margin = ggplot2::margin(b = 8)),
+
+      # Margins (fine)
+      plot.margin = ggplot2::margin(t = 12, r = 10, b = 10, l = 10)
     )
-  }
 }
 
+# ---------------------------
+# 1) Region Continuous
+# ---------------------------
 for (tot in unique(out_cont_Region$Total_name)) {
   for (dm in unique(out_cont_Region$dm)) {
 
-    df <- out_cont_Region %>% filter(Total_name == tot, dm == dm)
+    df <- out_cont_Region %>% dplyr::filter(Total_name == tot, dm == dm)
 
-    p <- EpipwR_plot(df)
-    
+    cat("\n\n## Region Continuous |", tot, "| dm =", dm, "\n\n")
+
+    subtitle <- paste0("Total Regions: ", tot, " | True DMRs (dm): ", dm)
+
+    p <- make_power_plot(
+      df = df,
+      title1 = "Region-Level Continuous Outcome",
+      subtitle_line = subtitle
+    )
+
     print(p)
 
     ggplot2::ggsave(
       filename = file.path(plot_dir, paste0("Region_continuous_", tot, "_dm", dm, ".pdf")),
       plot = p,
-      width = 8, height = 6, units = "in"
+      width = 8, height = 6.5, units = "in"   # height bumped to avoid clipping
     )
   }
 }
 
-for (tot in unique(out_bin_CpG$Total_name)) {
-  for (dm in unique(out_bin_CpG$dm)) {
-    for (model in unique(out_bin_CpG$Model)) {
-
-      df <- out_bin_CpG %>% filter(Total_name == tot, dm == dm, Model == model)
-
-      p <- EpipwR_plot(df)
-      
-      print(p)
-
-      safe_model <- gsub("[^A-Za-z0-9_]+", "_", model)
-
-      ggplot2::ggsave(
-        filename = file.path(plot_dir, paste0("CpG_binary_", tot, "_dm", dm, "_", safe_model, ".pdf")),
-        plot = p,
-        width = 8, height = 6, units = "in"
-      )
-    }
-  }
-}
-
-
+# ---------------------------
+# 2) Region Binary
+# ---------------------------
 for (tot in unique(out_bin_Region$Total_name)) {
   for (dm in unique(out_bin_Region$dm)) {
     for (model in unique(out_bin_Region$Model)) {
 
-      df <- out_bin_Region %>% filter(Total_name == tot, dm == dm, Model == model)
+      df <- out_bin_Region %>% dplyr::filter(Total_name == tot, dm == dm, Model == model)
 
-      p <- EpipwR_plot(df)
-      
+      cat("\n\n## Region Binary |", tot, "| dm =", dm, "|", model, "\n\n")
+
+      subtitle <- paste0("Total Regions: ", tot, " | True DMRs (dm): ", dm, " | ", model)
+
+      p <- make_power_plot(
+        df = df,
+        title1 = "Region-Level Binary Outcome",
+        subtitle_line = subtitle
+      )
+
       print(p)
 
       safe_model <- gsub("[^A-Za-z0-9_]+", "_", model)
@@ -332,10 +399,86 @@ for (tot in unique(out_bin_Region$Total_name)) {
       ggplot2::ggsave(
         filename = file.path(plot_dir, paste0("Region_binary_", tot, "_dm", dm, "_", safe_model, ".pdf")),
         plot = p,
-        width = 8, height = 6, units = "in"
+        width = 8, height = 6.5, units = "in"
+      )
+    }
+  }
+}
+
+# ---------------------------
+# 3) CpG Continuous
+# ---------------------------
+for (tot in unique(out_cont_CpG$Total_name)) {
+  for (dm in unique(out_cont_CpG$dm)) {
+
+    df <- out_cont_CpG %>% dplyr::filter(Total_name == tot, dm == dm)
+
+    cat("\n\n## CpG Continuous |", tot, "| dm =", dm, "\n\n")
+
+    subtitle <- paste0("Total CpGs: ", tot, " | True CpGs (dm): ", dm)
+
+    p <- make_power_plot(
+      df = df,
+      title1 = "CpG-Level Continuous Outcome",
+      subtitle_line = subtitle
+    )
+
+    print(p)
+
+    ggplot2::ggsave(
+      filename = file.path(plot_dir, paste0("CpG_continuous_", tot, "_dm", dm, ".pdf")),
+      plot = p,
+      width = 8, height = 6.5, units = "in"
+    )
+  }
+}
+
+# ---------------------------
+# 4) CpG Binary
+# ---------------------------
+for (tot in unique(out_bin_CpG$Total_name)) {
+  for (dm in unique(out_bin_CpG$dm)) {
+    for (model in unique(out_bin_CpG$Model)) {
+
+      df <- out_bin_CpG %>% dplyr::filter(Total_name == tot, dm == dm, Model == model)
+
+      cat("\n\n## CpG Binary |", tot, "| dm =", dm, "|", model, "\n\n")
+
+      subtitle <- paste0("Total CpGs: ", tot, " | True CpGs (dm): ", dm, " | ", model)
+
+      p <- make_power_plot(
+        df = df,
+        title1 = "CpG-Level Binary Outcome",
+        subtitle_line = subtitle
+      )
+
+      print(p)
+
+      safe_model <- gsub("[^A-Za-z0-9_]+", "_", model)
+
+      ggplot2::ggsave(
+        filename = file.path(plot_dir, paste0("CpG_binary_", tot, "_dm", dm, "_", safe_model, ".pdf")),
+        plot = p,
+        width = 8, height = 6.5, units = "in"
       )
     }
   }
 }
 
 ```
+
+
+```{r}
+# Load sessioninfo package
+library(sessioninfo)
+
+# Display session information
+session_info()
+```
+
+# References
+Barth, J., Reynolds, A.W. (2024). EpipwR: Efficient Power Analysis for EWAS with Continuous Outcomes [preprint].
+*bioRxiv*, 2024.09.06.611713; doi: https://doi.org/10.1101/2024.09.06.611713
+
+Graw, S., Henn, R., Thompson, J. A., and Koestler, D. C. (2019). pwrEWAS: A user-friendly tool for comprehensive power estimation for epigenome wide association studies (EWAS). *BMC Bioinformatics*, 20(1):218.
+

@@ -1,0 +1,13 @@
+mdes_effect,achieved_power,max_tested_effect,achieved_power_at_max,Level,Model,Total_name,Total_tests,dm
+0.02,0.8136,0.05,0.98375,CpG,Binary (delta; 25_75),CpG_15M,15000000,1000
+0.02,0.86095,0.05,0.99335,CpG,Binary (delta; 50_50),CpG_15M,15000000,1000
+0.18,0.8693,0.2,0.96455,CpG,Continuous (rho; per 1  Pearson correlation),CpG_15M,15000000,1000
+0.02,0.8068,0.05,0.98385,CpG,Binary (delta; 25_75),CpG_20M,20000000,1000
+0.02,0.8585,0.05,0.9917,CpG,Binary (delta; 50_50),CpG_20M,20000000,1000
+0.18,0.84095,0.2,0.95815,CpG,Continuous (rho; per 1  Pearson correlation),CpG_20M,20000000,1000
+0.02,0.8986000000000001,0.05,0.99475,Region,Binary (delta; 25_75),Region_100K,100000,1000
+0.02,0.93105,0.05,0.9971,Region,Binary (delta; 50_50),Region_100K,100000,1000
+0.15,0.8905500000000001,0.2,0.9981,Region,Continuous (rho; per 1  Pearson correlation),Region_100K,100000,1000
+0.02,0.86855,0.05,0.99185,Region,Binary (delta; 25_75),Region_500K,500000,1000
+0.02,0.9065500000000001,0.05,0.9954,Region,Binary (delta; 50_50),Region_500K,500000,1000
+0.15,0.8016,0.2,0.9937,Region,Continuous (rho; per 1  Pearson correlation),Region_500K,500000,1000

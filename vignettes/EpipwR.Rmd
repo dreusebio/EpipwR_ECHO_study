@@ -121,24 +121,25 @@ So for this power calculation, I will work with the assumption that we are going
 interested in both individual CpGs as well as differentially methylated regions (DMRs). 
 We usually prefer the DMRs. I will do for continuous and binary exposure models.
 
-```{r CpG-level exposure}
-out_cont_CpG <- lapply(dm_values, function(d) {
-  get_power_cont(
+```{region level binary}
+out_q4_regions <- lapply(dm_values, function(d) {
+  get_power_cc(
     dm        = d,
-    Total     = Total_CpG,
+    Total     = Total_regions,
     n         = n,
     fdr_fwer  = 0.05,
-    rho_mu    = rho_grid,
-    rho_sd    = 0,
+    delta_mu  = delta_grid,
+    delta_sd  = 0,
+    n1_prop   = 0.25,
     Tissue    = Tissue,
     emp_data  = emp_data,
     use_fdr   = TRUE,
-    test      = "pearson"
+    test      = "pooled"
   )
 })
 
-names(out_cont_CpG) <- paste0("dm_", dm_values)
-out_cont_CpG
+names(out_q4_regions) <- paste0("dm_", dm_values)
+out_q4_regions
 ```
 
 ```{r CpG level binary}
@@ -182,11 +183,12 @@ names(out_cont_regions) <- paste0("dm_", dm_values)
 out_cont_regions
 ```
 
-```{region level binary}
-out_cont_regions <- lapply(dm_values, function(d) {
+
+```{r CpG-level exposure}
+out_cont_CpG <- lapply(dm_values, function(d) {
   get_power_cont(
     dm        = d,
-    Total     = Total_regions,
+    Total     = Total_CpG,
     n         = n,
     fdr_fwer  = 0.05,
     rho_mu    = rho_grid,
@@ -198,8 +200,108 @@ out_cont_regions <- lapply(dm_values, function(d) {
   )
 })
 
-names(out_cont_regions) <- paste0("dm_", dm_values)
-out_cont_regions
+names(out_cont_CpG) <- paste0("dm_", dm_values)
+out_cont_CpG
+```
+
+```{r save results}
+library(dplyr)
+
+# --- Helper: convert one EpipwR result df to a standardized long format ---
+.standardize_epipwr_df <- function(df, effect_col_candidates) {
+  # Find power column (EpipwR outputs can vary in column naming)
+  power_col <- intersect(c("power", "Power", "avg_power", "Avg_Power"), names(df))[1]
+  if (is.na(power_col)) stop("Could not find a power column in EpipwR output.")
+
+  # Find effect column
+  effect_col <- intersect(effect_col_candidates, names(df))[1]
+  if (is.na(effect_col)) {
+    stop(paste0("Could not find effect column. Looked for: ",
+                paste(effect_col_candidates, collapse = ", "),
+                ". Available cols: ", paste(names(df), collapse = ", ")))
+  }
+
+  df %>%
+    mutate(
+      effect = .data[[effect_col]],
+      power  = .data[[power_col]]
+    ) %>%
+    select(effect, power, everything())
+}
+
+# --- Helper: for a list of dfs (named by dm), get the minimum effect that reaches target power ---
+extract_mdes <- function(res_list, scenario, level, target_power = 0.80,
+                         effect_type = c("rho", "delta")) {
+
+  effect_type <- match.arg(effect_type)
+
+  effect_cols <- if (effect_type == "rho") {
+    c("rho_mu", "rho", "rhoMean", "rho_mean")
+  } else {
+    c("delta_mu", "delta", "deltaMean", "delta_mean")
+  }
+
+  bind_rows(lapply(names(res_list), function(nm) {
+    df <- res_list[[nm]]
+
+    df2 <- .standardize_epipwr_df(df, effect_cols)
+
+    df2 <- df2 %>%
+      mutate(
+        dm_label = nm,
+        dm = suppressWarnings(as.numeric(gsub("^dm_", "", nm))),
+        Scenario = scenario,
+        Level = level
+      )
+
+    # smallest effect achieving target power
+    hit <- df2 %>%
+      filter(power >= target_power) %>%
+      arrange(effect) %>%
+      slice(1)
+
+    if (nrow(hit) == 0) {
+      # No effect in the grid reached target power
+      tibble(
+        Level = level,
+        Scenario = scenario,
+        dm = suppressWarnings(as.numeric(gsub("^dm_", "", nm))),
+        target_power = target_power,
+        mdes_effect = NA_real_,
+        achieved_power_at_mdes = NA_real_
+      )
+    } else {
+      tibble(
+        Level = level,
+        Scenario = scenario,
+        dm = hit$dm[1],
+        target_power = target_power,
+        mdes_effect = hit$effect[1],
+        achieved_power_at_mdes = hit$power[1]
+      )
+    }
+  }))
+}
+
+# --- Run extraction for the objects you created ---
+mdes_cont_CpG <- extract_mdes(out_cont_CpG,     scenario="Continuous (rho)", level="CpG",    effect_type="rho")
+mdes_bin_CpG  <- extract_mdes(out_q4_CpG,       scenario="Binary (delta)",   level="CpG",    effect_type="delta")
+mdes_cont_reg <- extract_mdes(out_cont_regions, scenario="Continuous (rho)", level="Region", effect_type="rho")
+
+# Only if you ran out_q4_regions (recommended fix above)
+mdes_bin_reg <- if (exists("out_q4_regions")) {
+  extract_mdes(out_q4_regions, scenario="Binary (delta)", level="Region", effect_type="delta")
+} else {
+  NULL
+}
+
+mdes_all <- bind_rows(mdes_cont_CpG, mdes_bin_CpG, mdes_cont_reg, mdes_bin_reg) %>%
+  arrange(Level, Scenario, dm)
+
+# --- Save to CSV ---
+write.csv(mdes_all, "EpipwR_MDES_summary.csv", row.names = FALSE)
+
+mdes_all
 ```
 
 ```{r}
